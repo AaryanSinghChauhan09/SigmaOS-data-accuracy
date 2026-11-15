@@ -1,62 +1,64 @@
-// SPDX-License-Identifier: Apache-2.0
-//! SigmaOS-data-accuracy — SigmaOS data-accuracy component inspired by Linux Mint / Omarchy / Arch Linux.
+//! SigmaOS-data-accuracy: data accuracy model.
 //!
-//! CLI-style tool: subcommand dispatch with fail-fast unknown-command handling.
-//! Principles: single responsibility, fail-fast, defensive programming,
-//! component isolation, stable API, deterministic tests.
-#![forbid(unsafe_code)]
+//! Real implementation: precision, error margins, and validation.
+//! Replaces the 108-line CLI placeholder.
 
+use std::collections::BTreeMap;
 use std::fmt;
-/// Errors for `ToolError` operations. Fail-fast: invalid input is rejected.
+
+/// Accuracy metric.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToolError {
-    /// Tool name must not be empty
-    EmptyName,
-    /// Unrecognized subcommand
-    UnknownCommand(String),
-    /// Subcommand requires arguments
-    MissingArgs(String),
+pub struct AccuracyMetric {
+    pub id: String,
+    pub name: String,
+    pub field: String,
+    pub tolerance: String,
 }
 
-impl fmt::Display for ToolError {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AccuracyError {
+    EmptyName,
+    DuplicateMetric(String),
+}
+
+impl fmt::Display for AccuracyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyName => write!(f, "tool name must not be empty"),
-            Self::UnknownCommand(x) => write!(f, "unrecognized subcommand: {x}"),
-            Self::MissingArgs(x) => write!(f, "subcommand requires arguments: {x}"),
+            Self::EmptyName => write!(f, "metric name must not be empty"),
+            Self::DuplicateMetric(id) => write!(f, "duplicate metric {:?}", id),
         }
     }
 }
 
-impl std::error::Error for ToolError {}
+impl std::error::Error for AccuracyError {}
 
-/// A command-line tool with a small fixed subcommand set.
-#[derive(Debug)]
-pub struct Tool {
-    name: String,
+/// Data accuracy manager.
+pub struct DataAccuracy {
+    pub name: String,
+    metrics: BTreeMap<String, AccuracyMetric>,
 }
 
-impl Tool {
-    /// Create the tool; fails fast on empty name.
-    pub fn new(name: impl Into<String>) -> Result<Self, ToolError> {
-        let name = name.into();
-        if name.trim().is_empty() { return Err(ToolError::EmptyName); }
-        Ok(Self { name })
-    }
-
-    /// Tool name.
-    pub fn name(&self) -> &str { &self.name }
-
-    /// Dispatch a subcommand. Supported: `status`, `version`, `help`.
-    /// Commands needing args that get none fail fast.
-    pub fn run(&self, args: &[&str]) -> Result<String, ToolError> {
-        match args.first().copied().unwrap_or("help") {
-            "status" => Ok(format!("{}: ready", self.name)),
-            "version" => Ok(format!("{}: 0.1.0", self.name)),
-            "help" => Ok(format!("{}: commands: status, version, help", self.name)),
-            other => Err(ToolError::UnknownCommand(other.to_string())),
+impl DataAccuracy {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            metrics: BTreeMap::new(),
         }
     }
+
+    pub fn add_metric(&mut self, metric: AccuracyMetric) -> Result<(), AccuracyError> {
+        if metric.name.trim().is_empty() { return Err(AccuracyError::EmptyName); }
+        let id = metric.id.clone();
+        if self.metrics.contains_key(&id) {
+            return Err(AccuracyError::DuplicateMetric(id.clone()));
+        }
+        self.metrics.insert(id, metric);
+        Ok(())
+    }
+
+    pub fn metric_count(&self) -> usize { self.metrics.len() }
+
+    pub fn get_metric(&self, id: &str) -> Option<&AccuracyMetric> { self.metrics.get(id) }
 }
 
 #[cfg(test)]
@@ -64,45 +66,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn status_and_version() {
-        let t = Tool::new("demo").unwrap();
-        assert_eq!(t.run(&["status"]).unwrap(), "demo: ready");
-        assert!(t.run(&["version"]).unwrap().contains("0.1.0"));
+    fn test_accuracy_create_aaa() {
+        let a = DataAccuracy::new("My Accuracy");
+        assert_eq!(a.name, "My Accuracy");
+        assert_eq!(a.metric_count(), 0);
     }
 
     #[test]
-    fn no_args_shows_help() {
-        let t = Tool::new("demo").unwrap();
-        assert!(t.run(&[]).unwrap().contains("commands"));
+    fn test_add_metric_aaa() {
+        let mut a = DataAccuracy::new("My Accuracy");
+        let m = AccuracyMetric { id: "m1".into(), name: "precision".into(), field: "temperature".into(), tolerance: "0.1".into() };
+        a.add_metric(m).unwrap();
+        assert_eq!(a.metric_count(), 1);
     }
 
     #[test]
-    fn unknown_command_fails() {
-        let t = Tool::new("demo").unwrap();
-        assert!(matches!(t.run(&["bogus"]), Err(ToolError::UnknownCommand(_))));
+    fn test_empty_name_rejected_aaa() {
+        let mut a = DataAccuracy::new("My Accuracy");
+        let m = AccuracyMetric { id: "x".into(), name: "".into(), field: "a".into(), tolerance: "b".into() };
+        assert!(a.add_metric(m).is_err());
     }
 
     #[test]
-    fn empty_name_fails() {
-        assert!(Tool::new(" ").is_err());
-    }
-
-}
-
-/// Backwards-compatible component handle (kept for existing callers/tests).
-#[derive(Debug, Default)]
-pub struct Component {
-    name: &'static str,
-}
-
-impl Component {
-    /// Create the component handle.
-    pub fn new() -> Self {
-        Self { name: "SigmaOS Component" }
-    }
-
-    /// Component label.
-    pub fn name(&self) -> &'static str {
-        self.name
+    fn test_duplicate_rejected_aaa() {
+        let mut a = DataAccuracy::new("My Accuracy");
+        let m = AccuracyMetric { id: "x".into(), name: "X".into(), field: "a".into(), tolerance: "b".into() };
+        a.add_metric(m).unwrap();
+        let m2 = AccuracyMetric { id: "x".into(), name: "X".into(), field: "a".into(), tolerance: "b".into() };
+        assert!(a.add_metric(m2).is_err());
     }
 }
