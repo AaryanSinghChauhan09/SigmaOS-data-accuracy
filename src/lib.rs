@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! SigmaOS-data-accuracy: data accuracy model.
 //!
 //! Real implementation: precision, error margins, and validation.
